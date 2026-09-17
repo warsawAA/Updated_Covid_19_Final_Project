@@ -1,0 +1,597 @@
+---
+title: "Covid_19_Final_Project"
+author: "Aaron_Warsaw"
+date: "2026-09-14"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+## R Markdown
+
+```{r setup, echo=TRUE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+library(dplyr)
+```
+
+# Getting Covid 19 Data
+
+Begin by reading in 4 data sets from John Hopkins Covid 19 Github website.
+The data is in csv format. There are two data sets with United States Covid data 
+and two websites with global covid data. 
+
+I am interested in looking at covid cases vs covid deaths. Can the number of covid 
+cases be used as a predictor of the number of covid deaths in the United States and 
+in my home state of Missouri as well.
+
+```{r import_data, message = FALSE}
+global_cases <- read.csv(
+  "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv"
+)
+
+global_deaths <- read.csv(
+  "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv"
+)
+
+us_cases <- read.csv(
+  "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv"
+)
+
+us_deaths <- read.csv(
+  "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_US.csv"
+)
+
+```
+
+Checking to see if data was properly read in.
+```{r data_check1, results = 'hide' }
+head(global_cases)
+head(global_deaths)
+head(us_cases)
+head(us_deaths)
+```
+Data looks good for all four csv files.
+
+# Cleaning and organizing data
+## Cleaning and organizing Global data sets.
+I don't need lat/long for my analysis.
+Each state or country is a row and each date is a column.
+Will put date, cases, deaths in their own column.
+Rename Region and State to be more R friendly with and "/" between them instead of a "."
+
+
+Tidy global_cases
+``` {r tidy_global_data}
+global_cases <- global_cases %>%
+  pivot_longer(
+    cols = -c('Province.State', 'Country.Region', Lat, Long),
+    names_to = "date",
+    values_to = "cases"
+  ) %>%
+  select(-Lat, -Long)
+
+global_deaths <- global_deaths %>%
+  pivot_longer(
+    cols = -c('Province.State', 'Country.Region', Lat, Long),
+    names_to = "date",
+    values_to = "deaths"
+  ) %>%
+  select(-Lat, -Long)
+```
+
+Checking global_cases and global_deaths to see if they are formatted the way I want now.
+Checking to see if data was properly read in.
+```{r data_check2, results ='hide'}
+head(global_cases)
+head(global_deaths)
+```
+Data looks good, but we need to change the date format into a date variable. I will do that in the next step as well
+as combine the global_cases and global_deaths data sets into one called global.
+
+```{r column_names}
+names(global_cases)
+names(global_deaths)
+```
+Joining global_cases with global deaths. 
+Also changing the date format by getting rid of the "X" in front of the date and replacing periods with /'s.
+```{r joining_global_cases_with_global_deaths1}
+global <- global_cases %>%
+  full_join(
+    global_deaths,
+    by = c("Province.State", "Country.Region", "date")
+  ) %>%
+  rename(
+    `Country_Region` = Country.Region,
+    `Province_State` = Province.State
+  ) %>%
+  mutate(date = mdy(gsub("\\.", "/", sub("^X", "", date))))
+```
+Checking new global data set.
+```{r global_check, results='hide'}
+head(global)
+```
+Data format looks good.
+Now to look at summary stats for global data set.
+```{r global_summary}
+summary(global)
+```
+Looks like a large number of dates have zero cases.
+Lets find how many rows have cases = 0
+```{r sum_cases_zero}
+sum(global$cases == 0, na.rm = TRUE)
+```
+This is a lot, 23500 rows have cases = 0.
+Filter out rows where cases = 0
+```{r filter_cases_equal_zero}
+global <- global %>% filter(cases> 0)
+summary(global)
+```
+We can see the min cases number is 1. So we successfully removed all rows where cases = 0.
+
+Maximun number of cases looks high.
+Lets check if it looks like a mistake.
+```{r check_max_cases, results='hide'}
+global %>% filter(cases > 90000000)
+```
+Ok so we have numerous dates with over 90 million cases so our maximum number of cases of 103 million seems correct.
+
+## Cleaning and Organizing United States Data Sets.
+Checking column names and content of US data sets.
+```{r data_check3, results='hide'}
+head(us_cases)
+head(us_deaths)
+names(us_cases)
+names(us_deaths)
+```
+Data looks good. Now I will work with US_cases data set.
+Start by pivoting so that each date is a row, change date data type int to a date data type,
+and remove Lat and Long_ columns.
+```{r date_pivot1, results='hide'}
+us_cases <- us_cases %>%
+  pivot_longer(cols = -(UID:Combined_Key),
+               names_to = "date",
+               values_to = "cases") %>%
+  select(Admin2:cases) %>%
+  mutate(date = mdy(gsub("\\.", "/", sub("^X", "",     date)))) %>%
+  select(-Lat, -Long_)
+head(us_cases)
+```
+US_cases now has the following columns: 
+Admin2, Province_State, Country_Regions, 
+Combined_Key, date, cases.
+
+Now to tidy the us_deaths dataset.
+Looking above the column names are the same except that the us_deaths data set
+has a Population column before the dates.
+
+Selecting columns to use, pivoting so each date column is now a row, and fixing 
+date data type int to date data type.
+```{r date_pivot2, results='hide'}
+us_deaths <- us_deaths %>%
+  pivot_longer(cols = -(UID:Population),
+               names_to = "date",
+               values_to = "deaths") %>%
+  select(Admin2:deaths) %>%
+  mutate(date = mdy(gsub("\\.", "/", sub("^X", "",     date)))) %>%
+  select(-Lat, -Long_)
+us_deaths
+```
+
+Joining us_cases and us_deaths.
+```{r joining_global_cases_with_global_deaths2}
+united_states <- us_cases %>%
+  full_join(us_deaths, 
+            by = c("Admin2", "Province_State", "Country_Region", "Combined_Key", "date"))
+ 
+```
+Checking new United States data set.
+```{r United_States_check, results='hide'}
+head(united_states)
+names(global)
+```
+Joined united_states data set looks good.
+
+## Adding Population to Global Data Set.
+However, we do not yet have population for the global data set. Adding it below.
+```{r add_population_to_global, results='hide'}
+global <- global %>%
+  unite("Combined_Key",
+        c(`Province_State`, `Country_Region`),
+        sep = ", ",
+        na.rm = TRUE,
+        remove = FALSE)
+global
+```
+Reading in the file from John Hopkins Github Website. A file with population for countries.
+```{r read_population_csv, results='hide'}
+population <-read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/refs/heads/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv") %>%
+  select(-c(Lat, Long_, Combined_Key, code3,iso2, iso3, Admin2))
+
+population
+```
+Adding population to the global data set.
+```{r join_global_and_population, results='hide'}
+global <- global %>%
+  left_join(population, by =  c("Country_Region")) %>%
+  select(-c(UID, FIPS))%>%
+  select(Country_Region, date, cases, deaths, Population, Combined_Key)
+
+global
+```
+
+
+
+# Data Visualization.
+## United States by State Summaries.
+```{r US_by_state_summary_one}
+US_by_state <- united_states %>%
+  group_by(Province_State, Country_Region, date) %>%
+  summarize(
+    cases = sum(cases, na.rm = TRUE),
+    deaths = sum(deaths, na.rm = TRUE),
+    Population = sum(Population, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    deaths_per_million = deaths * 1000000 / Population
+  )
+
+```
+Summary of each state by date. 
+```{r summary_by_state1, results='hide'}
+US_by_state
+```
+Checking the end of the US_by_State data set.
+```{r tail_US_by_state, results='hide'}
+tail(US_by_state)
+```
+OK, we have all the states.
+
+Now look at US totals data set.
+```{r US_totals_summary, results='hide'}
+US_totals <- US_by_state %>%
+  group_by(Country_Region, date) %>%
+  summarize(
+    cases = sum(cases, na.rm = TRUE),
+    deaths = sum(deaths, na.rm = TRUE),
+    Population = sum(Population, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    deaths_per_million = deaths * 1000000 / Population
+  ) %>%
+  select(
+    Country_Region, date, cases, deaths,
+    deaths_per_million, Population
+  )
+
+US_totals
+```
+Checking the end of the US_totals data set.
+```{r tail_US_totals, results='hide'}
+tail(US_totals)
+```
+Data looks good.
+
+## Visualization 1
+
+Graph of United States Covid 19 cases and deaths.
+```{r first_visualization}
+US_totals %>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date, y = cases)) +
+  geom_line(aes(color = "cases")) +
+  geom_point(aes(color = "cases")) +
+  geom_line(aes(y = deaths, color = "deaths")) +
+  geom_point(aes(y = deaths, color = "deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "Covid 19 in United States", y = NULL)
+
+```
+## Visualization 2
+
+Graph of Missouri Covid 19 cases and deaths.
+```{r second_visualization, warning=FALSE}
+state <- "Missouri"
+US_by_state %>%
+  filter(Province_State == state) %>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date, y = cases)) +
+  geom_line(aes(color = "cases")) +
+  geom_point(aes(color = "cases")) +
+  geom_line(aes(y = deaths, color = "deaths")) +
+  geom_point(aes(y = deaths, color = "deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = str_c("Covid 19 Cases and Deaths in " , state), y = NULL)
+
+```
+
+Getting max date and deaths for United States and Missouri.
+```{r max_deaths}
+US_max_date <- max(US_totals$date)
+US_max_deaths <- max(US_totals$deaths)
+
+US_max_date
+US_max_deaths
+```
+# Analyzing Data
+It looks like the number of cases and deaths taper off and almost flatlines. Is this true or not? I will investigate further.
+
+Adding new variable and transform data again. 
+Adding new_cases variable which is cases - lag(cases).
+Adding new_deaths variable which is deaths - lag(deaths).
+
+```{r adding_variables, results='hide'}
+US_by_state <- US_by_state %>%
+  mutate(new_cases = cases - lag(cases),
+         new_deaths = deaths - lag(deaths))
+US_totals <- US_totals %>%
+  mutate(new_cases = cases - lag(cases),
+         new_deaths = deaths - lag(deaths))
+tail(US_totals %>% 
+       select(new_cases, new_deaths, everything()))
+```
+
+## Visualization 3
+
+Now we can graph new cases and new deaths.
+```{r US_totals_newcases_deaths, warning=FALSE}
+US_totals %>%
+  ggplot(aes(x = date, y = new_cases)) +
+  geom_line(aes(color = "new_cases")) +
+  geom_point(aes(color = "new_cases")) +
+  geom_line(aes(y = new_deaths, color = "new_deaths")) +
+  geom_point(aes(y = new_deaths, color = "new_deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "Covid 19 New Cases and Deaths in United States", y = NULL)
+
+```
+Now we can see the up and down trends in new cases and new deaths in more detail although the overall trend does look like it has flattened out. However, the number of new cases and new deaths reamin high.
+
+## Visualization 4
+
+Now lets look at the same graph for Missouri.
+```{r Missouri_newcases_deaths, warning=FALSE}
+state <- "Missouri"
+US_by_state %>%
+  filter(Province_State == state) %>%
+  ggplot(aes(x = date, y = new_cases)) +
+  geom_line(aes(color = "new_cases")) +
+  geom_point(aes(color = "new_cases")) +
+  geom_line(aes(y = new_deaths, color = "new_deaths")) +
+  geom_point(aes(y = new_deaths, color = "new_deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = str_c("New Covid 19 Cases and Deaths in " , state), y = NULL)
+
+```
+Missouri has a similar pattern of new covid 19 cases and new deaths to the United States totals. There is a dramatic increase in new cases and deaths at the end of 2021 followed by a dramatic decrease in new cases and deaths at the beginning of 2022. After the decrease in cases and deaths at the beginning of 2022 the cases gradually rise again and seem to level off. However, the number ofnew cases and new deaths remain high.
+
+# Modeling Data United States
+
+Lets look at a linear model of deaths_per_thousand being a function of cases_per_thousand in the US_state_totals data set.
+
+Making US_state_totals data set to use with linear model.
+```{r US_state_totals_dataset_construction}
+US_state_totals <- US_by_state %>%
+  group_by(Province_State) %>%
+  summarize(deaths = max(deaths), cases = max(cases),
+            population = max(Population),
+            cases_per_thou = 1000 * cases/ population,
+            deaths_per_thou = 1000 * deaths / population) %>%
+  filter(cases >0, population > 0)
+```
+
+Now running the linear model of deaths per thousand as a function of cases per thousand.
+```{r model_deaths_per_thousand_cases_per_thousand}
+linear_model <- lm(deaths_per_thou ~ cases_per_thou, data = US_state_totals)
+
+summary(linear_model)
+```
+The fitted model is: deaths_per_thousand = -0.36167 + 0.01133*cases_per_thousand.
+There was a statistically significant positive association between cases per thousand and deaths per thousand. Each additional case per thousand associated with an estimated 0.0113 increase in deaths per thousand (p < 0.001).
+The Adjusted R-squared value of 0.2933 explains 0.2933% of the variation in deaths per thousand. 
+
+Find the number of cases that are the smallest.
+```{r number_cases_smallest1, results='hide'}
+US_state_totals %>% slice_min(cases_per_thou)
+```
+Find the number of cases that are the largest.
+```{r number_cases_smallest2, results='hide'}
+US_state_totals %>% slice_max(cases_per_thou)
+```
+Cases per thousand go from a minimum of 55641 in American Samoa to a maximum of 460697 in Rhode Island.
+
+Adding prediction column based on the linear model above to the data set.
+```{r adding_pred_column, results='hide'}
+US_state_totals %>%
+  mutate(pred = predict(linear_model))
+```
+I am now interested in seeing how well the model predicts the actual values in the 
+dataset.
+
+Make new dataset US totals with predictions.
+```{r construct_US_totals_with_pred_data_set_2, results='hide'}
+US_totals_w_predictions <- US_state_totals %>%
+  mutate(pred = predict(linear_model))
+US_totals_w_predictions
+```
+
+## Model Visualization: United States
+
+Plotting actual deaths per thousand vs predicted deaths per thousand.
+```{r plot_actual_vs_predicted_deaths_per_thousand}
+US_totals_w_predictions %>%
+  ggplot() +
+  geom_point(aes(x = cases_per_thou, y = deaths_per_thou), 
+             color = "red") +
+  geom_point(aes(x = cases_per_thou, y = pred), color = "blue")
+```
+Actual values of cases per thousand as a predictor of deaths per thousand(red dots) show a weak linear appearance with a similar deviation from the linear predicted values(blue dots). So although the model has a significant positive association between actual and predicted values the adjusted R-squared of 0.29 leaves room for much improvement in future model development.
+
+
+Now lets look at modeling cases per thousand as a predictor of deaths per thousand for the rest of the world, excluding the United States.
+
+## Modeling Data: All countries except United States
+Global cases per thousand as a predictor of global deaths per thousand.
+
+```{r global_data_view}
+head(global)
+tail(global)
+```
+Remove rows with NAN values
+```{r remove_nan}
+#Global_by_country <- na.omit(global)
+```
+```{r US_by_state_summary}
+US_by_state <- united_states %>%
+  group_by(Province_State, Country_Region, date) %>%
+  summarize(
+    cases = sum(cases, na.rm = TRUE),
+    deaths = sum(deaths, na.rm = TRUE),
+    Population = sum(Population, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    deaths_per_million = deaths * 1000000 / Population
+  )
+
+```
+Summary of each state by date. 
+```{r summary_by_state, results='hide'}
+US_by_state
+```
+
+
+```{r global_check1, results='hide'}
+head(global, 100)
+
+```
+
+Columns I will need: Country_Region, cases, date, deaths, Population
+Global data by country
+```{r Global_by_country}
+Global_by_country <- global %>%
+  group_by(Country_Region, date) %>%
+  summarize(
+    cases = sum(cases, na.rm = TRUE),
+    deaths = sum(deaths, na.rm = TRUE),
+    Population = sum(Population, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    deaths_per_million = deaths * 1000000 / Population
+  )
+
+```
+Summary of each country by date. 
+```{r summary_by_country, results='hide'}
+Global_by_country
+```
+
+Lets look at a linear model of deaths_per_thousand being a function of cases_per_thousand in the US_state_totals data set.
+
+
+
+Making Global_country_totals data set to use with linear model.
+```{r Globa_country_totals_dataset_construction, results='hide'}
+Global_country_totals <- Global_by_country %>%
+  group_by(Country_Region) %>%
+  summarize(deaths = max(deaths), cases = max(cases),
+            population = max(Population),
+            cases_per_thou = 1000 * cases/ population,
+            deaths_per_thou = 1000 * deaths / population) %>%
+  filter(cases >=0, population >= 0)
+Global_country_totals
+```
+Checking for NAN's in rows.
+```{r nan_check}
+sum(apply(Global_country_totals, 1, anyNA))
+```
+Removing rows with nan
+
+```{r clean_data_Global_country_totals, results='hide'}
+Global_country_totals_cleaned <- Global_country_totals[
+  is.finite(Global_country_totals$deaths_per_thou) &
+  is.finite(Global_country_totals$cases_per_thou),
+]
+
+Global_country_totals_cleaned
+```
+Now removing US becasue I am interested in the rest of the world.
+
+Getting country names to drop the U.S.
+```{r drop_US, results='hide'}
+unique(Global_country_totals_cleaned$Country_Region)
+```
+United states is labeled "US"
+```{r remove_US}
+Global_country_totals_cleaned_noUS <- Global_country_totals_cleaned[
+  Global_country_totals_cleaned$Country_Region != "US",
+]
+```
+
+
+
+Now running the linear model of deaths per thousand as a function of cases per thousand.
+```{r global_model_deaths_per_thousand_cases_per_thousand, results='hide'}
+linear_model_global <- lm(
+  deaths_per_thou ~ cases_per_thou,
+  data = Global_country_totals_cleaned_noUS
+)
+
+summary(linear_model_global)
+
+```
+The fitted model is: deaths_per_thousand = -0.9555 + 0.0114*cases_per_thousand
+There was statistically significant positive association between cases per thousand and deaths per thousand. Each additional case per thousand associated with an estimated 0.0108271 increase in deaths per thousand (p < 0.001).
+The adjusted R-squared value of 0.5923 explains 59.2% of the variation in deaths per thousand. This almost a perfect fit for cases per thousand predicting deaths per thousand. 
+
+Now we want to look  at predicted vs actual values.
+Adding prediction column based on the linear model above to the data set.
+```{r adding_pred_column_global, results='hide'}
+#Global_country_totals_cleaned <- na.omit(Global_country_totals)
+Global_country_totals_cleaned_noUS %>%
+  mutate(pred = predict(linear_model_global))
+```
+I am now interested in seeing how well the model predicts the actual values in the 
+dataset.
+
+Make new dataset global totals with predictions.
+```{r construct_Global_totals_with_pred_data_set, results='hide'}
+Global_totals_w_predictions <- Global_country_totals_cleaned_noUS %>%
+  mutate(pred = predict(linear_model_global))
+Global_totals_w_predictions
+```
+
+## Model Visualization: All Countries except United States
+
+Plotting actual deaths per thousand vs predicted deaths per thousand.
+```{r plot_actual_vs_predicted_deaths_per_thousand2}
+Global_totals_w_predictions %>%
+  ggplot() +
+  geom_point(aes(x = cases_per_thou, y = deaths_per_thou), 
+             color = "red") +
+  geom_point(aes(x = cases_per_thou, y = pred), color = "blue")
+```
+The predicted vs actual values of cases per thousand as a as a predictor of deaths per thousand are heavily concentrated on the lower left side of the graph but become fewer and farther apart from  predicted values once deaths per thousand hit 1000. This suggests the model will be more accurate for cases per thousand numbers below 1000. That can be tested in further analysis. 
+
+# Conclusion 
+Just like the model for the United States the model for the rest of the world had a significant positive linear relationship between cases per thousand and deaths per thousand. The adjusted R-squared vale of 0.59 for the rest of the world was 0.59 compared to the R-squared value of the United States(0.29). However further model development and consideration of other predictive variables should be investigated for both models.
+
+Bias in the data could come from the ways in which deaths are reported. For example, do they differ among states and among countries? Any differences in how deaths due to Covid 19 are classified and reported could make a difference in the models ability to correctly predict deaths per thousand. Also, how quickly the deaths per day are reported. Are they all reported the same day or does reporting time lag in less developed countries.  
+
+## Session Information
+```{r, session_information}
+sessionInfo()
+```
